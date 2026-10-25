@@ -1,6 +1,6 @@
 /* =========================================================
    Estoque de Insumo — Entrada, Estoque e Retirada
-   Banco: o mesmo Supabase do App de Compras (mesmo usuário e senha).
+   Banco: o mesmo Supabase do App de Compras. Sem login: abre direto.
    ========================================================= */
 (function () {
   'use strict';
@@ -10,7 +10,6 @@
   const COMPRAS = window.APP_CONFIG || {};
   const URL_SB = (LOCAL.SUPABASE_URL || COMPRAS.SUPABASE_URL || '').trim();
   const KEY_SB = (LOCAL.SUPABASE_ANON_KEY || COMPRAS.SUPABASE_ANON_KEY || '').trim();
-  const LINK_COMPRAS = LOCAL.APP_COMPRAS_URL || 'https://potyrala93-sudo.github.io/APP-compras/';
   const configurado = /^https:\/\//.test(URL_SB) && KEY_SB.length > 20 && !/SEU-PROJETO|COLE_AQUI/.test(URL_SB + KEY_SB);
 
   // ---------- Utilidades ----------
@@ -74,28 +73,22 @@
   }
 
   // ---------- Estado ----------
-  const S = { sb: null, perfil: null, produtos: [], equipes: [], movs: {}, tab: 'estoque', busca: '', zerados: false, canal: null };
+  const S = { sb: null, produtos: [], equipes: [], movs: {}, tab: 'estoque', busca: '', zerados: false, canal: null };
   try { S.zerados = localStorage.getItem('estoque.zerados') === '1'; } catch (_) {}
   const app = () => $('#app');
 
   function cliente() {
     if (S.sb) return S.sb;
     if (!configurado || !window.supabase?.createClient) return null;
-    S.sb = window.supabase.createClient(URL_SB, KEY_SB, { auth: { persistSession: true, autoRefreshToken: true, storageKey: 'estoque.auth' } });
+    S.sb = window.supabase.createClient(URL_SB, KEY_SB, { auth: { persistSession: false, autoRefreshToken: false } });
     return S.sb;
   }
   async function rpc(fn, args) { const { data, error } = await S.sb.rpc(fn, args || {}); if (error) throw error; return data; }
-  async function sessao() {
-    const { data } = await S.sb.auth.getSession();
-    if (data?.session) return data.session;
-    const r = await S.sb.auth.signInAnonymously(); if (r.error) throw r.error; return r.data.session;
-  }
-
   // ---------- Dados ----------
   async function carregar() {
     const [pr, eq] = await Promise.all([
       S.sb.from('vw_estoque').select('*').eq('ativo', true).order('nome'),
-      S.sb.from('equipes').select('nome,tipo').eq('cdc', S.perfil.cdc).order('nome'),
+      S.sb.from('equipes').select('cdc,nome,tipo').order('cdc').order('nome'),
     ]);
     if (pr.error) throw pr.error;
     S.produtos = pr.data.map((p) => ({ ...p, saldo: Number(p.saldo) }));
@@ -144,38 +137,6 @@
   }
 
   // =========================================================
-  //   Entrar
-  // =========================================================
-  function telaLogin(msg) {
-    app().innerHTML = `<div class="auth"><div class="auth-box">
-      <span class="tag big">Estoque de Insumo</span>
-      <form class="auth-card" id="f-login" novalidate>
-        <div><h1>Entrar</h1><p class="muted">Use o mesmo usuário e senha do App de Compras.</p></div>
-        ${msg ? `<div class="alert alert-warn">${h(msg)}</div>` : ''}
-        <div class="field"><label for="l-user">Usuário</label><input id="l-user" class="input" autocomplete="username" autocapitalize="none" spellcheck="false"></div>
-        <div class="field"><label for="l-pass">Senha</label><input id="l-pass" type="password" class="input" autocomplete="current-password"></div>
-        <p class="form-error" id="l-err" role="alert"></p>
-        <button class="btn btn-block" id="l-btn">Entrar</button>
-      </form>
-      <p class="muted small" style="text-align:center">Ainda não tem usuário? Crie no <a href="${h(LINK_COMPRAS)}" target="_blank" rel="noopener">App de Compras</a> e volte aqui.</p>
-    </div></div>`;
-    try { $('#l-user').value = localStorage.getItem('estoque.usuario') || ''; } catch (_) {}
-    ($('#l-user').value ? $('#l-pass') : $('#l-user')).focus();
-    $('#f-login').onsubmit = async (e) => {
-      e.preventDefault();
-      const u = $('#l-user').value.trim().toLowerCase(), s = $('#l-pass').value;
-      if (!u || !s) return ($('#l-err').textContent = 'Preencha usuário e senha.');
-      $('#l-btn').disabled = true; $('#l-err').textContent = '';
-      try {
-        await sessao();
-        S.perfil = await rpc('entrar', { p_usuario: u, p_senha: s });
-        try { localStorage.setItem('estoque.usuario', u); } catch (_) {}
-        await iniciar();
-      } catch (ex) { $('#l-err').textContent = msgErro(ex); $('#l-btn').disabled = false; }
-    };
-  }
-
-  // =========================================================
   //   Estrutura
   // =========================================================
   const ABAS = [
@@ -184,36 +145,27 @@
     { id: 'retirada', nome: 'Retirada', icone: 'out' },
   ];
   function shell() {
-    const me = S.perfil;
     app().innerHTML = `
       <header class="topbar">
         <div class="brand"><span class="tag">Estoque</span><span class="muted small">Insumos</span></div>
         <div class="spacer"></div>
         <span class="net" id="net" hidden>Sem internet</span>
-        <div class="who"><b>${h(me.nome.split(' ')[0])}</b><small>${h(me.cdc)}</small></div>
-        <button class="icon-btn" id="sair" title="Sair" aria-label="Sair">${ic('out2', 20)}</button>
       </header>
       <nav class="tabs" aria-label="Seções">${ABAS.map((a) => `<button data-tab="${a.id}">${ic(a.icone)}<span>${a.nome}</span></button>`).join('')}</nav>
       <main class="view" id="view" tabindex="-1"></main>`;
     $$('[data-tab]').forEach((b) => (b.onclick = () => { location.hash = '/' + b.dataset.tab; }));
-    $('#sair').onclick = async () => {
-      try { await rpc('sair'); } catch (_) {}
-      try { await S.sb.auth.signOut(); } catch (_) {}
-      if (S.canal) { try { S.sb.removeChannel(S.canal); } catch (_) {} S.canal = null; }
-      S.perfil = null; telaLogin('Você saiu.');
-    };
     rede();
   }
   function rede() { const n = $('#net'); if (n) n.hidden = navigator.onLine; }
-  window.addEventListener('online', () => { rede(); if (S.perfil) recarregarLogo(); });
+  window.addEventListener('online', () => { rede(); if (S.pronto) recarregarLogo(); });
   window.addEventListener('offline', rede);
-  document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible' && S.perfil && navigator.onLine) recarregarLogo(); });
+  document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible' && S.pronto && navigator.onLine) recarregarLogo(); });
 
   function abaAtual() { const t = location.hash.replace(/^#\/?/, '').split('?')[0]; return ABAS.some((a) => a.id === t) ? t : 'estoque'; }
   window.addEventListener('hashchange', () => render(true));
 
   function render(trocou) {
-    if (!S.perfil || !$('#view')) return;
+    if (!S.pronto || !$('#view')) return;
     const tab = abaAtual(); const view = $('#view');
     // não apaga o que a pessoa está digitando
     if (!trocou && view.dataset.tab === tab && tab !== 'estoque' && $('form[data-sujo="1"]', view)) return;
@@ -377,7 +329,7 @@
           <div class="field"><label for="ent-qtd">Quantidade</label><input id="ent-qtd" class="input qtd" inputmode="decimal" placeholder="0"></div>
         </div>
         ${campoProduto('entrada')}
-        <div class="field"><label for="ent-resp">Responsável pela entrada</label><input id="ent-resp" class="input" value="${h(S.perfil.nome)}" autocomplete="name"></div>
+        <div class="field"><label for="ent-resp">Responsável pela entrada</label><input id="ent-resp" class="input" value="${h(lembrarResp())}" autocomplete="name" placeholder="Nome de quem recebeu"></div>
         <p class="form-error" id="ent-err" role="alert"></p>
         <div class="row end"><button class="btn" id="ent-btn">${ic('in', 18)} Registrar entrada</button></div>
       </form>`;
@@ -395,6 +347,7 @@
       if (dados.resp.length < 2) { $('#ent-resp').focus(); return (err.textContent = 'Informe o responsável pela entrada.'); }
       const bt = $('#ent-btn'); bt.disabled = true;
       try {
+        try { localStorage.setItem('estoque.responsavel', dados.resp); } catch (_) {}
         const saldo = await rpc('registrar_entrada', { p_id: uuid(), p_data: dados.data, p_insumo: dados.id, p_quantidade: dados.qtd, p_responsavel: dados.resp });
         const p = S.produtos.find((x) => x.id === dados.id);
         if (p) { p.saldo = Number(saldo); p.ultima_movimentacao = dados.data; }
@@ -404,6 +357,7 @@
       } catch (ex) { err.textContent = msgErro(ex); bt.disabled = false; }
     };
   }
+  function lembrarResp() { try { return localStorage.getItem('estoque.responsavel') || ''; } catch (_) { return ''; } }
   function trocarProduto(modo) {
     const form = $(modo === 'entrada' ? '#f-ent' : '#f-ret'); if (!form) return render(true);
     form.dataset.sujo = '1';
@@ -428,7 +382,7 @@
         ${campoProduto('retirada')}
         <p class="disp" id="ret-disp" hidden></p>
         <div class="field"><label for="ret-eq">Equipe</label>
-          <select id="ret-eq" class="input"><option value="">Selecione</option>${equipes.map((e) => `<option value="${h(e.nome)}">${h(e.nome)} (${h(e.tipo)})</option>`).join('')}<option value="__outra">Outra equipe…</option></select>
+          <select id="ret-eq" class="input"><option value="">Selecione</option>${opcoesEquipes(equipes)}<option value="__outra">Outra equipe…</option></select>
           <input id="ret-eq-outra" class="input" placeholder="Nome da equipe" hidden></div>
         <div class="field"><label for="ret-obs">Observação</label><textarea id="ret-obs" class="input" placeholder="Ex.: aplicação na fazenda Gir, talhão 12"></textarea></div>
         <p class="form-error" id="ret-err" role="alert"></p>
@@ -460,6 +414,12 @@
       } catch (ex) { err.textContent = msgErro(ex); bt.disabled = false; recarregarLogo(); }
     };
   }
+  function opcoesEquipes(lista) {
+    const cdcs = [...new Set(lista.map((e) => e.cdc))];
+    const op = (e) => `<option value="${h(e.nome)}">${h(e.nome)} (${h(e.tipo)})</option>`;
+    if (cdcs.length < 2) return lista.map(op).join('');
+    return cdcs.map((c) => `<optgroup label="${h(c)}">${lista.filter((e) => e.cdc === c).map(op).join('')}</optgroup>`).join('');
+  }
   function atualizarDisponivel() {
     const el = $('#ret-disp'); if (!el) return;
     const p = S.produtos.find((x) => x.id === escolhido.retirada);
@@ -474,7 +434,7 @@
   //   Início
   // =========================================================
   async function iniciar() {
-    try { localStorage.setItem('estoque.perfil', JSON.stringify(S.perfil)); } catch (_) {}
+    S.pronto = true;
     shell();
     try { await carregar(); }
     catch (ex) {
@@ -484,24 +444,16 @@
     render(true);
     tempoReal();
   }
-  async function boot() {
+  function boot() {
     if (!cliente()) {
+      // sem internet na abertura: mostra o último estoque salvo, se houver
+      if (doCache()) { S.pronto = true; shell(); render(true); toast('Sem conexão. Mostrando o último estoque salvo neste aparelho.', 'erro', 8000); return; }
       app().innerHTML = `<div class="auth"><div class="auth-box"><span class="tag big">Estoque de Insumo</span><div class="auth-card"><h2>Sem conexão com o banco</h2>
         <p>${navigator.onLine ? 'Não encontrei o endereço do banco. Confira o config.js do App de Compras ou preencha o config.js deste app.' : 'Conecte-se à internet e tente de novo.'}</p>
         <button class="btn" onclick="location.reload()">Tentar de novo</button></div></div></div>`;
       return;
     }
-    try {
-      const { data } = await S.sb.auth.getSession();
-      if (data?.session) {
-        const p = await rpc('meu_perfil');
-        if (p && p.id) { S.perfil = p; return iniciar(); }
-      }
-    } catch (ex) {
-      // sem internet mas já entrou antes: mostra o último estoque salvo
-      try { const c = JSON.parse(localStorage.getItem('estoque.perfil') || 'null'); if (c && !navigator.onLine) { S.perfil = c; return iniciar(); } } catch (_) {}
-    }
-    telaLogin();
+    iniciar();
   }
   boot();
 })();

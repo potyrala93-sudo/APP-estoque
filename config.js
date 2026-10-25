@@ -7,6 +7,4 @@
 window.ESTOQUE_CONFIG = {
   SUPABASE_URL: '',
   SUPABASE_ANON_KEY: '',
-  // link do App de Compras, para quem ainda não tem usuário
-  APP_COMPRAS_URL: 'https://potyrala93-sudo.github.io/APP-compras/',
 };
