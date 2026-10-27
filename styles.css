@@ -184,3 +184,10 @@ dialog::backdrop { background: rgba(10, 20, 15, .5); }
 .splash { min-height: 100dvh; display: grid; place-items: center; }
 .spinner { width: 34px; height: 34px; border-radius: 50%; border: 4px solid var(--line); border-top-color: var(--euca); animation: gira .8s linear infinite; }
 @keyframes gira { to { transform: rotate(360deg); } }
+
+/* Botão para voltar ao menu dos apps (Apps SMA) */
+.menu-btn { display: inline-flex; align-items: center; gap: 6px; height: 38px; padding: 0 10px; margin-left: -4px; border-radius: 10px; border: 1px solid var(--line); color: var(--ink); background: var(--surface); text-decoration: none; font-weight: 700; font-size: .85rem; flex: none; }
+.menu-btn:hover { background: var(--surface-2); }
+@media (max-width: 370px) { .menu-btn span { display: none; } .menu-btn { padding: 0 9px; } }
+.menu-link { display: inline-flex; align-items: center; gap: 6px; margin-bottom: 14px; padding: 6px 2px; color: var(--muted); font-weight: 700; text-decoration: none; }
+.menu-link:hover { color: var(--ink); }
